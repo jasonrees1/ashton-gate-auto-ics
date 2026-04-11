@@ -1,0 +1,34 @@
+name: Update ICS Feed
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Scrape events
+        run: python scrape.py
+
+      - name: Generate ICS
+        run: python generate_ics.py
+
+      - name: Commit and push
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add calendar.ics events.json
+          git commit -m "Update ICS feed" || echo "No changes"
+          git push
