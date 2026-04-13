@@ -1,76 +1,94 @@
 import json
-from datetime import datetime, timedelta
-from playwright.sync_api import sync_playwright
+import requests
 from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
-def fetch_page(url, selector_to_wait_for):
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page()
-        page.goto(url)
-        page.wait_for_selector(selector_to_wait_for)
-        html = page.content()
-        browser.close()
-        return html
+with open("config.json", "r", encoding="utf-8") as f:
+    CONFIG = json.load(f)
 
-def fetch_bcfc():
-    url = "https://www.bcfc.co.uk/matches/fixtures/"
-    html = fetch_page(url, ".fixtures-list")
-    soup = BeautifulSoup(html, "html.parser")
+TZ = ZoneInfo(CONFIG["timezone"])
+
+
+def parse_bbc_date(date_str: str, time_str: str | None):
+    now = datetime.now(TZ)
+
+    candidates = [
+        "%a %d %b %Y",
+        "%A %d %B %Y",
+        "%a, %d %b %Y",
+        "%A, %d %B %Y",
+        "%d %B %Y",
+        "%d %b %Y"
+    ]
+
+    base = f"{date_str} {now.year}"
+    dt = None
+    for fmt in candidates:
+        try:
+            dt = datetime.strptime(base, fmt)
+            break
+        except ValueError:
+            continue
+
+    if dt is None:
+        return None
+
+    if time_str:
+        try:
+            t = datetime.strptime(time_str, "%H:%M").time()
+            dt = datetime.combine(dt.date(), t)
+        except ValueError:
+            dt = datetime.combine(dt.date(), datetime.min.time())
+    else:
+        dt = datetime.combine(dt.date(), datetime.min.time())
+
+    if dt.replace(tzinfo=TZ) < now and (now - dt.replace(tzinfo=TZ)).days > 270:
+        dt = dt.replace(year=dt.year + 1)
+
+    return dt.replace(tzinfo=TZ)
+
+
+def scrape_bbc_team(team_name: str, url: str, sport: str):
+    print(f"Scraping BBC for {team_name}: {url}")
+    r = requests.get(url, timeout=20)
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, "html.parser")
+
     events = []
 
-    for item in soup.select(".fixtures-list .fixture"):
-        title = item.select_one(".fixture__opposition").get_text(strip=True)
-        date = item.select_one(".fixture__date").get_text(strip=True)
-        time = item.select_one(".fixture__time").get_text(strip=True)
+    fixture_blocks = soup.find_all(["article", "div"], attrs={"data-event-id": True})
+    if not fixture_blocks:
+        fixture_blocks = soup.find_all(["article", "div"], class_=lambda c: c and "fixture" in c.lower())
 
-        dt = datetime.strptime(f"{date} {time}", "%A %d %B %Y %H:%M")
-        events.append({
-            "title": f"Bristol City – {title}",
-            "start": dt.isoformat(),
-            "duration": 120
-        })
-    return events
+    for block in fixture_blocks:
+        text = " ".join(block.stripped_strings)
 
-def fetch_bears():
-    url = "https://www.bristolbearsrugby.com/fixtures/"
-    html = fetch_page(url, ".fixtures")
-    soup = BeautifulSoup(html, "html.parser")
-    events = []
+        if team_name.lower() not in text.lower():
+            continue
 
-    for item in soup.select(".fixtures .fixture"):
-        title = item.select_one(".fixture__opposition").get_text(strip=True)
-        date = item.select_one(".fixture__date").get_text(strip=True)
-        time = item.select_one(".fixture__time").get_text(strip=True)
+        line_candidates = [l for l in text.split("\n") if " v " in l or " vs " in l]
+        fixture_line = line_candidates[0] if line_candidates else text
 
-        dt = datetime.strptime(f"{date} {time}", "%A %d %B %Y %H:%M")
-        events.append({
-            "title": f"Bristol Bears – {title}",
-            "start": dt.isoformat(),
-            "duration": 120
-        })
-    return events
+        is_home = False
+        opponent = None
+        for sep in [" v ", " vs "]:
+            if sep in fixture_line:
+                left, right = fixture_line.split(sep, 1)
+                if team_name.lower() in left.lower():
+                    is_home = True
+                    opponent = right.strip()
+                elif team_name.lower() in right.lower():
+                    is_home = False
+                    opponent = left.strip()
+                break
 
-def fetch_ashton_gate():
-    url = "https://www.ashtongatestadium.co.uk/whats-on/"
-    html = fetch_page(url, ".event-card")
-    soup = BeautifulSoup(html, "html.parser")
-    events = []
+        if not is_home:
+            continue
 
-    for card in soup.select(".event-card"):
-        title = card.select_one("h3").get_text(strip=True)
-        date = card.select_one(".date").get_text(strip=True)
-        time = card.select_one(".time").get_text(strip=True)
+        date_el = block.find(["time", "span"], attrs={"data-testid": "date"})
+        if not date_el:
+            date_el = block.find(["time", "span"])
+        date_str = date_el.get_text(strip=True) if date_el else None
 
-        dt = datetime.strptime(f"{date} {time}", "%A %d %B %Y %H:%M")
-        events.append({
-            "title": f"Ashton Gate – {title}",
-            "start": dt.isoformat(),
-            "duration": 180
-        })
-    return events
-
-all_events = fetch_bcfc() + fetch_bears() + fetch_ashton_gate()
-
-with open("events.json", "w") as f:
-    json.dump(all_events, f, indent=2)
+        time_el = block.find
