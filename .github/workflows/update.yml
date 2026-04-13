@@ -29,7 +29,7 @@ jobs:
       - name: Generate ICS
         run: python generate_ics.py
 
-           - name: Commit and push changes
+      - name: Commit and push changes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -42,4 +42,5 @@ jobs:
             git commit -m "Update Ashton Gate calendar"
             git push
           fi
+
 
