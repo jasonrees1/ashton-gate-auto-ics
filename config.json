@@ -1,20 +1,16 @@
 {
   "timezone": "Europe/London",
-
   "football": {
-"team_id": 55
+    "team_id": 55,
     "next_fixtures": 50
   },
-
   "rugby": {
     "team_name": "Bristol Bears"
   },
-
   "events": {
     "venue": "Ashton Gate Stadium",
     "city": "Bristol"
   },
-
   "output": {
     "events_json": "events.json",
     "ics_file": "calendar.ics"
