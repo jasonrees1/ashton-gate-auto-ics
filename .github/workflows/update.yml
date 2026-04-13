@@ -19,7 +19,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests ics python-dateutil
+          pip install requests ics python-dateutil pytz
 
       - name: Run scraper
         env:
