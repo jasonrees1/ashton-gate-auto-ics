@@ -1,94 +1,136 @@
+import os
 import json
 import requests
-from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
+from ics import Calendar, Event
 
 with open("config.json", "r", encoding="utf-8") as f:
     CONFIG = json.load(f)
 
 TZ = ZoneInfo(CONFIG["timezone"])
 
+API_FOOTBALL_KEY = os.environ.get("API_FOOTBALL_KEY")
+EVENTBRITE_TOKEN = os.environ.get("EVENTBRITE_TOKEN")
 
-def parse_bbc_date(date_str: str, time_str: str | None):
-    now = datetime.now(TZ)
+def fetch_bristol_city():
+    team_id = CONFIG["football"]["team_id"]
+    next_n = CONFIG["football"]["next_fixtures"]
 
-    candidates = [
-        "%a %d %b %Y",
-        "%A %d %B %Y",
-        "%a, %d %b %Y",
-        "%A, %d %B %Y",
-        "%d %B %Y",
-        "%d %b %Y"
-    ]
+    url = f"https://v3.football.api-sports.io/fixtures?team={team_id}&next={next_n}"
+    headers = {"x-apisports-key": API_FOOTBALL_KEY}
 
-    base = f"{date_str} {now.year}"
-    dt = None
-    for fmt in candidates:
-        try:
-            dt = datetime.strptime(base, fmt)
-            break
-        except ValueError:
-            continue
-
-    if dt is None:
-        return None
-
-    if time_str:
-        try:
-            t = datetime.strptime(time_str, "%H:%M").time()
-            dt = datetime.combine(dt.date(), t)
-        except ValueError:
-            dt = datetime.combine(dt.date(), datetime.min.time())
-    else:
-        dt = datetime.combine(dt.date(), datetime.min.time())
-
-    if dt.replace(tzinfo=TZ) < now and (now - dt.replace(tzinfo=TZ)).days > 270:
-        dt = dt.replace(year=dt.year + 1)
-
-    return dt.replace(tzinfo=TZ)
-
-
-def scrape_bbc_team(team_name: str, url: str, sport: str):
-    print(f"Scraping BBC for {team_name}: {url}")
-    r = requests.get(url, timeout=20)
+    r = requests.get(url, headers=headers, timeout=20)
     r.raise_for_status()
-    soup = BeautifulSoup(r.text, "html.parser")
+    data = r.json()
 
     events = []
+    for item in data.get("response", []):
+        fixture = item["fixture"]
+        teams = item["teams"]
+        league = item["league"]
 
-    fixture_blocks = soup.find_all(["article", "div"], attrs={"data-event-id": True})
-    if not fixture_blocks:
-        fixture_blocks = soup.find_all(["article", "div"], class_=lambda c: c and "fixture" in c.lower())
+        dt = datetime.fromisoformat(fixture["date"].replace("Z", "+00:00")).astimezone(TZ)
 
-    for block in fixture_blocks:
-        text = " ".join(block.stripped_strings)
+        home = teams["home"]["name"]
+        away = teams["away"]["name"]
+        title = f"{home} vs {away} ({league['name']})"
 
-        if team_name.lower() not in text.lower():
+        events.append({
+            "title": title,
+            "start": dt.isoformat(),
+            "location": fixture.get("venue", {}).get("name", "Ashton Gate Stadium")
+        })
+
+    return events
+
+def fetch_bristol_bears():
+    url = "https://push.api.bbci.co.uk/batch?t=Sport%2Fteams%2Frugby-union%2Fbristol-bears"
+    r = requests.get(url, timeout=20)
+    r.raise_for_status()
+    data = r.json()
+
+    events = []
+    fixtures = data["payload"][0]["body"]["fixtures"]
+
+    for fx in fixtures:
+        dt = datetime.fromisoformat(fx["startTime"]).astimezone(TZ)
+        title = f"Bristol Bears vs {fx['opponent']}"
+        events.append({
+            "title": title,
+            "start": dt.isoformat(),
+            "location": "Ashton Gate Stadium" if fx["homeAway"] == "home" else fx["venue"]
+        })
+
+    return events
+
+def fetch_ashton_gate_events():
+    url = "https://www.eventbriteapi.com/v3/events/search/"
+    params = {
+        "location.address": CONFIG["events"]["city"],
+        "q": CONFIG["events"]["venue"],
+        "sort_by": "date",
+        "start_date.range_start": datetime.now(TZ).isoformat()
+    }
+    headers = {"Authorization": f"Bearer {EVENTBRITE_TOKEN}"}
+
+    r = requests.get(url, params=params, headers=headers, timeout=20)
+    r.raise_for_status()
+    data = r.json()
+
+    events = []
+    for ev in data.get("events", []):
+        if not ev.get("start", {}).get("utc"):
             continue
 
-        line_candidates = [l for l in text.split("\n") if " v " in l or " vs " in l]
-        fixture_line = line_candidates[0] if line_candidates else text
+        dt = datetime.fromisoformat(ev["start"]["utc"].replace("Z", "+00:00")).astimezone(TZ)
 
-        is_home = False
-        opponent = None
-        for sep in [" v ", " vs "]:
-            if sep in fixture_line:
-                left, right = fixture_line.split(sep, 1)
-                if team_name.lower() in left.lower():
-                    is_home = True
-                    opponent = right.strip()
-                elif team_name.lower() in right.lower():
-                    is_home = False
-                    opponent = left.strip()
-                break
+        events.append({
+            "title": ev["name"]["text"],
+            "start": dt.isoformat(),
+            "location": CONFIG["events"]["venue"]
+        })
 
-        if not is_home:
-            continue
+    return events
 
-        date_el = block.find(["time", "span"], attrs={"data-testid": "date"})
-        if not date_el:
-            date_el = block.find(["time", "span"])
-        date_str = date_el.get_text(strip=True) if date_el else None
+def generate_ics(events):
+    cal = Calendar()
+    for ev in events:
+        e = Event()
+        e.name = ev["title"]
+        e.begin = ev["start"]
+        e.location = ev["location"]
+        cal.events.add(e)
 
-        time_el = block.find
+    with open(CONFIG["output"]["ics_file"], "w", encoding="utf-8") as f:
+        f.writelines(cal)
+
+def main():
+    all_events = []
+
+    try:
+        all_events.extend(fetch_bristol_city())
+    except Exception as e:
+        print("Football API failed:", e)
+
+    try:
+        all_events.extend(fetch_bristol_bears())
+    except Exception as e:
+        print("Rugby API failed:", e)
+
+    try:
+        all_events.extend(fetch_ashton_gate_events())
+    except Exception as e:
+        print("Eventbrite API failed:", e)
+
+    if not all_events:
+        print("No events found — keeping previous events.json")
+        return
+
+    with open(CONFIG["output"]["events_json"], "w", encoding="utf-8") as f:
+        json.dump(all_events, f, indent=2)
+
+    generate_ics(all_events)
+
+if __name__ == "__main__":
+    main()
