@@ -1,8 +1,8 @@
-name: Update Ashton Gate Calendar
+name: Update ICS Feed
 
 on:
   schedule:
-    - cron: "0 4 * * *"  # daily at 04:00 UTC
+    - cron: "0 4 * * *"
   workflow_dispatch:
 
 jobs:
@@ -10,37 +10,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: "3.11"
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install requests beautifulsoup4
+          pip install requests ics python-dateutil
 
-      - name: Scrape events
+      - name: Run scraper
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          EVENTBRITE_TOKEN: ${{ secrets.EVENTBRITE_TOKEN }}
         run: python scrape.py
 
-      - name: Generate ICS
-        run: python generate_ics.py
-
-      - name: Commit and push changes
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit changes
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add events.json calendar.ics || true
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "Update Ashton Gate calendar"
-            git push
-          fi
-
-
+          git config --global user.name "actions-user"
+          git config --global user.email "actions@github.com"
+          git add events.json calendar.ics
+          git commit -m "Update ICS feed" || echo "No changes"
+          git push
