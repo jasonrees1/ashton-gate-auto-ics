@@ -1,0 +1,24 @@
+{
+  "stadium_name": "Ashton Gate Stadium",
+  "timezone": "Europe/London",
+
+  "bristol_city": {
+    "team_name": "Bristol City",
+    "bbc_fixtures_url": "https://www.bbc.co.uk/sport/football/teams/bristol-city/fixtures"
+  },
+
+  "bristol_bears": {
+    "team_name": "Bristol Bears",
+    "bbc_fixtures_url": "https://www.bbc.co.uk/sport/rugby-union/teams/bristol-bears/fixtures"
+  },
+
+  "ashton_gate_events": {
+    "eventbrite_url": "https://www.eventbrite.co.uk/d/united-kingdom--bristol/ashton-gate-stadium/",
+    "strict_venue_name": "Ashton Gate Stadium"
+  },
+
+  "output": {
+    "events_json": "events.json",
+    "ics_file": "calendar.ics"
+  }
+}
