@@ -4,9 +4,7 @@ from datetime import datetime
 import os
 import pytz
 import requests
-from bs4 import BeautifulSoup  # you can keep or remove later
 import json
-
 
 # UK timezone
 uk_tz = pytz.timezone("Europe/London")
@@ -15,7 +13,7 @@ print("Today's UK date:", today_uk)
 
 
 # ---------------------------------------------------------
-#  BRISTOL CITY FIXTURES (BBC SPORT)
+#  BRISTOL CITY FIXTURES (API-FOOTBALL)
 # ---------------------------------------------------------
 def fetch_bristol_city_fixtures():
     print("\n=== Fetching Bristol City Fixtures from API-Football ===")
@@ -25,22 +23,14 @@ def fetch_bristol_city_fixtures():
         print("No API_FOOTBALL_KEY found in environment")
         return []
 
-    # Bristol City team ID in API-Football
-    team_id = 52  # if this is wrong we can adjust, but it's the usual ID
+    team_id = 52  # Bristol City
 
-    # Date range: today → 1 year ahead
     from_date = today_uk.strftime("%Y-%m-%d")
     to_date = (today_uk.replace(year=today_uk.year + 1)).strftime("%Y-%m-%d")
 
     url = "https://v3.football.api-sports.io/fixtures"
-    params = {
-        "team": team_id,
-        "from": from_date,
-        "to": to_date,
-    }
-    headers = {
-        "x-apisports-key": api_key
-    }
+    params = {"team": team_id, "from": from_date, "to": to_date}
+    headers = {"x-apisports-key": api_key}
 
     print("Requesting:", url, params)
     response = requests.get(url, headers=headers, params=params)
@@ -52,11 +42,7 @@ def fetch_bristol_city_fixtures():
         print("Error decoding JSON:", e)
         return []
 
-    if "response" not in data:
-        print("Unexpected API-Football response structure")
-        return []
-
-    matches = data["response"]
+    matches = data.get("response", [])
     print("Total fixtures from API-Football:", len(matches))
 
     fixtures = []
@@ -77,7 +63,7 @@ def fetch_bristol_city_fixtures():
             if "ashton gate" not in venue_name.lower():
                 continue
 
-            kickoff_str = fixture["date"]  # ISO string
+            kickoff_str = fixture["date"]
             kickoff_dt = datetime.fromisoformat(kickoff_str.replace("Z", "+00:00"))
             kickoff_uk = kickoff_dt.astimezone(uk_tz)
 
@@ -98,8 +84,124 @@ def fetch_bristol_city_fixtures():
     return fixtures
 
 
+# ---------------------------------------------------------
+#  BRISTOL BEARS FIXTURES (RUGBY JSON API)
+# ---------------------------------------------------------
+def fetch_bristol_bears_fixtures():
+    print("\n=== Fetching Bristol Bears Fixtures (Rugby JSON API) ===")
+
+    url = "https://rugby-premiership-api.vercel.app/api/fixtures?team=bristol-bears"
+
+    print("Requesting:", url)
+    response = requests.get(url)
+    print("Rugby HTTP status:", response.status_code)
+
+    try:
+        data = response.json()
+    except Exception as e:
+        print("Error decoding Rugby JSON:", e)
+        return []
+
+    print("Total rugby fixtures returned:", len(data))
+    fixtures = []
+
+    for m in data:
+        try:
+            home = m.get("home", "")
+            away = m.get("away", "")
+            venue = m.get("venue", "")
+            kickoff_str = m.get("date", "")
+
+            if home.lower() != "bristol bears":
+                continue
+            if "ashton gate" not in venue.lower():
+                continue
+
+            kickoff_dt = datetime.fromisoformat(kickoff_str.replace("Z", "+00:00"))
+            kickoff_uk = kickoff_dt.astimezone(uk_tz)
+
+            if kickoff_uk.date() < today_uk:
+                continue
+
+            fixtures.append({
+                "id": f"rugby-{kickoff_uk.timestamp()}",
+                "home": home,
+                "away": away,
+                "kickoff": kickoff_uk.isoformat()
+            })
+
+        except Exception as e:
+            print("Error parsing rugby fixture:", e)
+
+    print("Total future HOME rugby fixtures:", len(fixtures))
+    return fixtures
 
 
+# ---------------------------------------------------------
+#  ASHTON GATE EVENTS (EVENTBRITE API)
+# ---------------------------------------------------------
+def fetch_ashton_gate_events():
+    print("\n=== Fetching Ashton Gate Events from Eventbrite ===")
+
+    token = os.environ.get("EVENTBRITE_TOKEN")
+    if not token:
+        print("No EVENTBRITE_TOKEN found in environment")
+        return []
+
+    url = "https://www.eventbriteapi.com/v3/events/search/"
+    params = {
+        "location.address": "Bristol",
+        "expand": "venue",
+        "page_size": 50
+    }
+    headers = {"Authorization": f"Bearer {token}"}
+
+    print("Requesting:", url)
+    response = requests.get(url, headers=headers, params=params)
+    print("Eventbrite HTTP status:", response.status_code)
+
+    try:
+        data = response.json()
+    except Exception as e:
+        print("Error decoding Eventbrite JSON:", e)
+        return []
+
+    events_raw = data.get("events", [])
+    print("Eventbrite events returned:", len(events_raw))
+
+    events = []
+
+    for e in events_raw:
+        try:
+            venue = e.get("venue", {})
+            venue_name = venue.get("name", "") or ""
+
+            if "ashton gate" not in venue_name.lower():
+                continue
+
+            name = e.get("name", {}).get("text", "Event")
+            start_str = e.get("start", {}).get("utc", None)
+            if not start_str:
+                continue
+
+            start_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+            start_uk = start_dt.astimezone(uk_tz)
+
+            if start_uk.date() < today_uk:
+                continue
+
+            events.append({
+                "id": f"event-{e['id']}",
+                "title": name,
+                "start": start_uk.isoformat(),
+                "category": "event"
+            })
+
+        except Exception as e:
+            print("Error parsing Eventbrite event:", e)
+
+    print("Total future Ashton Gate events:", len(events))
+    return events
 
 
 # ---------------------------------------------------------
@@ -107,18 +209,33 @@ def fetch_bristol_city_fixtures():
 # ---------------------------------------------------------
 print("\n=== Running main scraper ===")
 
-fixtures = fetch_bristol_city_fixtures()
-print("Fixtures fetched:", len(fixtures))
+football = fetch_bristol_city_fixtures()
+rugby = fetch_bristol_bears_fixtures()
+events_api = fetch_ashton_gate_events()
 
 events = []
 
-for f in fixtures:
+# Football
+for f in football:
     events.append({
         "id": f"football-{f['id']}",
         "title": f"{f['home']} vs {f['away']}",
         "start": f["kickoff"],
         "category": "football"
     })
+
+# Rugby
+for r in rugby:
+    events.append({
+        "id": r["id"],
+        "title": f"{r['home']} vs {r['away']}",
+        "start": r["kickoff"],
+        "category": "rugby"
+    })
+
+# Events
+for e in events_api:
+    events.append(e)
 
 print("Total events being written to events.json:", len(events))
 
