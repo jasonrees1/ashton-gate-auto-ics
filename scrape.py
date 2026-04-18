@@ -1,6 +1,6 @@
 print("SCRAPER STARTED")
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import pytz
 import requests
@@ -57,7 +57,6 @@ def fetch_bristol_city_fixtures():
             away_team = teams["away"]["name"]
             venue_name = venue.get("name", "") or ""
 
-            # HOME ONLY at Ashton Gate
             if home_team.lower() != "bristol city":
                 continue
             if "ashton gate" not in venue_name.lower():
@@ -71,26 +70,26 @@ def fetch_bristol_city_fixtures():
                 continue
 
             fixtures.append({
-                "id": fixture["id"],
-                "home": home_team,
-                "away": away_team,
-                "kickoff": kickoff_uk.isoformat()
+                "id": f"football-{fixture['id']}",
+                "title": f"{home_team} vs {away_team}",
+                "start": kickoff_uk.isoformat(),
+                "category": "football"
             })
 
         except Exception as e:
             print("Error parsing fixture:", e)
 
-    print("Total future HOME fixtures (all competitions):", len(fixtures))
+    print("Total future HOME fixtures:", len(fixtures))
     return fixtures
 
 
 # ---------------------------------------------------------
-#  BRISTOL BEARS FIXTURES (RUGBY JSON API)
+#  BRISTOL BEARS FIXTURES (ESPN RUGBY API)
 # ---------------------------------------------------------
 def fetch_bristol_bears_fixtures():
-    print("\n=== Fetching Bristol Bears Fixtures (Rugby JSON API) ===")
+    print("\n=== Fetching Bristol Bears Fixtures (ESPN API) ===")
 
-    url = "https://rugby-premiership-api.vercel.app/api/fixtures?team=bristol-bears"
+    url = "https://site.api.espn.com/apis/site/v2/sports/rugby/eng.1/teams/bristol-bears/schedule"
 
     print("Requesting:", url)
     response = requests.get(url)
@@ -99,24 +98,29 @@ def fetch_bristol_bears_fixtures():
     try:
         data = response.json()
     except Exception as e:
-        print("Error decoding Rugby JSON:", e)
+        print("Error decoding ESPN Rugby JSON:", e)
         return []
 
-    print("Total rugby fixtures returned:", len(data))
+    events = data.get("events", [])
+    print("Total rugby fixtures returned:", len(events))
+
     fixtures = []
 
-    for m in data:
+    for e in events:
         try:
-            home = m.get("home", "")
-            away = m.get("away", "")
-            venue = m.get("venue", "")
-            kickoff_str = m.get("date", "")
+            competitions = e.get("competitions", [{}])[0]
+            venue = competitions.get("venue", {}).get("fullName", "")
+            competitors = competitions.get("competitors", [])
+
+            home = next((c["team"]["displayName"] for c in competitors if c["homeAway"] == "home"), "")
+            away = next((c["team"]["displayName"] for c in competitors if c["homeAway"] == "away"), "")
 
             if home.lower() != "bristol bears":
                 continue
             if "ashton gate" not in venue.lower():
                 continue
 
+            kickoff_str = competitions.get("date")
             kickoff_dt = datetime.fromisoformat(kickoff_str.replace("Z", "+00:00"))
             kickoff_uk = kickoff_dt.astimezone(uk_tz)
 
@@ -124,10 +128,10 @@ def fetch_bristol_bears_fixtures():
                 continue
 
             fixtures.append({
-                "id": f"rugby-{kickoff_uk.timestamp()}",
-                "home": home,
-                "away": away,
-                "kickoff": kickoff_uk.isoformat()
+                "id": f"rugby-{int(kickoff_uk.timestamp())}",
+                "title": f"{home} vs {away}",
+                "start": kickoff_uk.isoformat(),
+                "category": "rugby"
             })
 
         except Exception as e:
@@ -150,6 +154,7 @@ def fetch_ashton_gate_events():
 
     url = "https://www.eventbriteapi.com/v3/events/search/"
     params = {
+        "q": "Ashton Gate",
         "location.address": "Bristol",
         "expand": "venue",
         "page_size": 50
@@ -205,6 +210,42 @@ def fetch_ashton_gate_events():
 
 
 # ---------------------------------------------------------
+#  ICS GENERATION
+# ---------------------------------------------------------
+def generate_ics(events):
+    print("\n=== Generating ICS file ===")
+
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Ashton Gate Auto Feed//EN"
+    ]
+
+    now_utc = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+    for e in events:
+        start_dt = datetime.fromisoformat(e["start"])
+        end_dt = start_dt + timedelta(hours=2)
+
+        dtstart = start_dt.strftime("%Y%m%dT%H%M%S")
+        dtend = end_dt.strftime("%Y%m%dT%H%M%S")
+
+        lines.extend([
+            "BEGIN:VEVENT",
+            f"UID:{e['id']}@ashton-gate-auto",
+            f"DTSTAMP:{now_utc}",
+            f"DTSTART;TZID=Europe/London:{dtstart}",
+            f"DTEND;TZID=Europe/London:{dtend}",
+            f"SUMMARY:{e['title']}",
+            "LOCATION:Ashton Gate Stadium",
+            "END:VEVENT"
+        ])
+
+    lines.append("END:VCALENDAR")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------
 #  MAIN EXECUTION
 # ---------------------------------------------------------
 print("\n=== Running main scraper ===")
@@ -213,29 +254,7 @@ football = fetch_bristol_city_fixtures()
 rugby = fetch_bristol_bears_fixtures()
 events_api = fetch_ashton_gate_events()
 
-events = []
-
-# Football
-for f in football:
-    events.append({
-        "id": f"football-{f['id']}",
-        "title": f"{f['home']} vs {f['away']}",
-        "start": f["kickoff"],
-        "category": "football"
-    })
-
-# Rugby
-for r in rugby:
-    events.append({
-        "id": r["id"],
-        "title": f"{r['home']} vs {r['away']}",
-        "start": r["kickoff"],
-        "category": "rugby"
-    })
-
-# Events
-for e in events_api:
-    events.append(e)
+events = football + rugby + events_api
 
 print("Total events being written to events.json:", len(events))
 
@@ -244,8 +263,9 @@ with open("events.json", "w") as f:
 
 print("events.json written successfully")
 
+ics_content = generate_ics(events)
 with open("calendar.ics", "w") as f:
-    f.write("BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Ashton Gate Auto Feed//EN\nEND:VCALENDAR\n")
+    f.write(ics_content)
 
 print("calendar.ics written successfully")
 print("SCRAPER FINISHED")
