@@ -5,6 +5,7 @@ import os
 import pytz
 import requests
 import json
+from bs4 import BeautifulSoup
 
 # UK timezone
 uk_tz = pytz.timezone("Europe/London")
@@ -32,19 +33,15 @@ def fetch_bristol_city_fixtures():
     params = {"team": team_id, "from": from_date, "to": to_date}
     headers = {"x-apisports-key": api_key}
 
-    print("Requesting:", url, params)
     response = requests.get(url, headers=headers, params=params)
     print("HTTP status:", response.status_code)
 
     try:
         data = response.json()
-    except Exception as e:
-        print("Error decoding JSON:", e)
+    except:
         return []
 
     matches = data.get("response", [])
-    print("Total fixtures from API-Football:", len(matches))
-
     fixtures = []
 
     for m in matches:
@@ -84,52 +81,45 @@ def fetch_bristol_city_fixtures():
 
 
 # ---------------------------------------------------------
-#  BRISTOL BEARS FIXTURES (ESPN RUGBY API)
+#  BRISTOL BEARS FIXTURES (PREMIERSHIP RUGBY JSON)
 # ---------------------------------------------------------
 def fetch_bristol_bears_fixtures():
-    print("\n=== Fetching Bristol Bears Fixtures (ESPN API) ===")
+    print("\n=== Fetching Bristol Bears Fixtures (Premiership Rugby JSON) ===")
 
-    url = "https://site.api.espn.com/apis/site/v2/sports/rugby/eng.1/teams/bristol-bears/schedule"
+    url = "https://www.premiershiprugby.com/wp-json/wp/v2/clubs/bristol-bears/fixtures"
 
-    print("Requesting:", url)
     response = requests.get(url)
-    print("Rugby HTTP status:", response.status_code)
+    print("HTTP status:", response.status_code)
 
     try:
         data = response.json()
-    except Exception as e:
-        print("Error decoding ESPN Rugby JSON:", e)
+    except:
         return []
-
-    events = data.get("events", [])
-    print("Total rugby fixtures returned:", len(events))
 
     fixtures = []
 
-    for e in events:
+    for e in data:
         try:
-            competitions = e.get("competitions", [{}])[0]
-            venue = competitions.get("venue", {}).get("fullName", "")
-            competitors = competitions.get("competitors", [])
+            title = e.get("title", {}).get("rendered", "")
+            venue = e.get("acf", {}).get("venue", "")
+            date_str = e.get("acf", {}).get("date", "")
+            time_str = e.get("acf", {}).get("time", "")
 
-            home = next((c["team"]["displayName"] for c in competitors if c["homeAway"] == "home"), "")
-            away = next((c["team"]["displayName"] for c in competitors if c["homeAway"] == "away"), "")
-
-            if home.lower() != "bristol bears":
-                continue
             if "ashton gate" not in venue.lower():
                 continue
 
-            kickoff_str = competitions.get("date")
-            kickoff_dt = datetime.fromisoformat(kickoff_str.replace("Z", "+00:00"))
-            kickoff_uk = kickoff_dt.astimezone(uk_tz)
+            if not date_str:
+                continue
+
+            dt_str = f"{date_str} {time_str or '15:00'}"
+            kickoff_uk = uk_tz.localize(datetime.strptime(dt_str, "%Y-%m-%d %H:%M"))
 
             if kickoff_uk.date() < today_uk:
                 continue
 
             fixtures.append({
                 "id": f"rugby-{int(kickoff_uk.timestamp())}",
-                "title": f"{home} vs {away}",
+                "title": title,
                 "start": kickoff_uk.isoformat(),
                 "category": "rugby"
             })
@@ -142,70 +132,100 @@ def fetch_bristol_bears_fixtures():
 
 
 # ---------------------------------------------------------
-#  ASHTON GATE EVENTS (EVENTBRITE API)
+#  ASHTON GATE HTML SCRAPER (OFFICIAL WHAT'S ON)
 # ---------------------------------------------------------
-def fetch_ashton_gate_events():
-    print("\n=== Fetching Ashton Gate Events from Eventbrite ===")
+def fetch_ashton_gate_html():
+    print("\n=== Fetching Ashton Gate HTML Events ===")
 
-    token = os.environ.get("EVENTBRITE_TOKEN")
-    if not token:
-        print("No EVENTBRITE_TOKEN found in environment")
+    url = "https://www.ashtongatestadium.co.uk/whats-on/"
+    response = requests.get(url)
+    print("HTTP status:", response.status_code)
+
+    if response.status_code != 200:
         return []
 
-    url = "https://www.eventbriteapi.com/v3/events/search/"
-    params = {
-        "q": "Ashton Gate",
-        "location.address": "Bristol",
-        "expand": "venue",
-        "page_size": 50
-    }
-    headers = {"Authorization": f"Bearer {token}"}
+    soup = BeautifulSoup(response.text, "html.parser")
+    cards = soup.select(".event-card")
 
-    print("Requesting:", url)
-    response = requests.get(url, headers=headers, params=params)
-    print("Eventbrite HTTP status:", response.status_code)
+    events = []
+
+    for card in cards:
+        try:
+            title = card.select_one(".event-card__title").get_text(strip=True)
+            date_text = card.select_one(".event-card__date").get_text(strip=True)
+
+            dt = datetime.strptime(date_text, "%d %B %Y")
+            kickoff_uk = uk_tz.localize(dt.replace(hour=19, minute=0))
+
+            if kickoff_uk.date() < today_uk:
+                continue
+
+            events.append({
+                "id": f"ashton-{int(kickoff_uk.timestamp())}",
+                "title": title,
+                "start": kickoff_uk.isoformat(),
+                "category": "ashton"
+            })
+
+        except Exception as e:
+            print("Error parsing Ashton Gate HTML:", e)
+
+    print("Total Ashton Gate HTML events:", len(events))
+    return events
+
+
+# ---------------------------------------------------------
+#  TICKETMASTER DISCOVERY API
+# ---------------------------------------------------------
+def fetch_ticketmaster_events():
+    print("\n=== Fetching Ticketmaster Events ===")
+
+    api_key = os.environ.get("TICKETMASTER_KEY")
+    if not api_key:
+        print("No TICKETMASTER_KEY found")
+        return []
+
+    url = "https://app.ticketmaster.com/discovery/v2/events.json"
+    params = {
+        "venueId": "KovZpZA7AAEA",
+        "apikey": api_key
+    }
+
+    response = requests.get(url, params=params)
+    print("HTTP status:", response.status_code)
 
     try:
         data = response.json()
-    except Exception as e:
-        print("Error decoding Eventbrite JSON:", e)
+    except:
         return []
 
-    events_raw = data.get("events", [])
-    print("Eventbrite events returned:", len(events_raw))
-
+    events_raw = data.get("_embedded", {}).get("events", [])
     events = []
 
     for e in events_raw:
         try:
-            venue = e.get("venue", {})
-            venue_name = venue.get("name", "") or ""
-
-            if "ashton gate" not in venue_name.lower():
-                continue
-
-            name = e.get("name", {}).get("text", "Event")
-            start_str = e.get("start", {}).get("utc", None)
+            title = e.get("name", "")
+            start_str = e.get("dates", {}).get("start", {}).get("dateTime", None)
             if not start_str:
                 continue
 
-            start_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
-            start_uk = start_dt.astimezone(uk_tz)
+            kickoff_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+            kickoff_uk = kickoff_dt.astimezone(uk_tz)
 
-            if start_uk.date() < today_uk:
+            if kickoff_uk.date() < today_uk:
                 continue
 
             events.append({
-                "id": f"event-{e['id']}",
-                "title": name,
-                "start": start_uk.isoformat(),
-                "category": "event"
+                "id": f"tm-{e['id']}",
+                "title": title,
+                "start": kickoff_uk.isoformat(),
+                "category": "ticketmaster"
             })
 
         except Exception as e:
-            print("Error parsing Eventbrite event:", e)
+            print("Error parsing Ticketmaster event:", e)
 
-    print("Total future Ashton Gate events:", len(events))
+    print("Total Ticketmaster events:", len(events))
     return events
 
 
@@ -252,9 +272,10 @@ print("\n=== Running main scraper ===")
 
 football = fetch_bristol_city_fixtures()
 rugby = fetch_bristol_bears_fixtures()
-events_api = fetch_ashton_gate_events()
+ashton_html = fetch_ashton_gate_html()
+ticketmaster = fetch_ticketmaster_events()
 
-events = football + rugby + events_api
+events = football + rugby + ashton_html + ticketmaster
 
 print("Total events being written to events.json:", len(events))
 
