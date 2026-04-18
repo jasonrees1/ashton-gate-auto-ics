@@ -26,7 +26,7 @@ def fetch_bristol_city_fixtures():
         return []
 
     # Bristol City team ID in API-Football
-    team_id = 48  # if this is wrong we can adjust, but it's the usual ID
+    team_id = 52  # if this is wrong we can adjust, but it's the usual ID
 
     # Date range: today → 1 year ahead
     from_date = today_uk.strftime("%Y-%m-%d")
