@@ -138,10 +138,15 @@ def fetch_ashton_gate_html():
     print("\n=== Fetching Ashton Gate HTML Events ===")
 
     url = "https://www.ashtongatestadium.co.uk/whats-on/"
-    response = requests.get(url)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36"
+    }
+
+    response = requests.get(url, headers=headers)
     print("HTTP status:", response.status_code)
 
     if response.status_code != 200:
+        print("Ashton Gate HTML blocked or unavailable")
         return []
 
     soup = BeautifulSoup(response.text, "html.parser")
@@ -172,6 +177,7 @@ def fetch_ashton_gate_html():
 
     print("Total Ashton Gate HTML events:", len(events))
     return events
+
 
 
 # ---------------------------------------------------------
