@@ -1,10 +1,12 @@
 print("SCRAPER STARTED")
 
 from datetime import datetime
+import os
 import pytz
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup  # you can keep or remove later
 import json
+
 
 # UK timezone
 uk_tz = pytz.timezone("Europe/London")
@@ -16,19 +18,85 @@ print("Today's UK date:", today_uk)
 #  BRISTOL CITY FIXTURES (BBC SPORT)
 # ---------------------------------------------------------
 def fetch_bristol_city_fixtures():
-    print("\n=== Fetching Bristol City Fixtures from BBC JSON API ===")
+    print("\n=== Fetching Bristol City Fixtures from API-Football ===")
 
-    url = "https://push.api.bbci.co.uk/batch?sport=football&team=bristol-city"
-    print("Requesting:", url)
+    api_key = os.environ.get("API_FOOTBALL_KEY")
+    if not api_key:
+        print("No API_FOOTBALL_KEY found in environment")
+        return []
 
+    # Bristol City team ID in API-Football
+    team_id = 48  # if this is wrong we can adjust, but it's the usual ID
+
+    # Date range: today → 1 year ahead
+    from_date = today_uk.strftime("%Y-%m-%d")
+    to_date = (today_uk.replace(year=today_uk.year + 1)).strftime("%Y-%m-%d")
+
+    url = "https://v3.football.api-sports.io/fixtures"
+    params = {
+        "team": team_id,
+        "from": from_date,
+        "to": to_date,
+    }
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36"
+        "x-apisports-key": api_key
     }
 
-    response = requests.get(url, headers=headers)
+    print("Requesting:", url, params)
+    response = requests.get(url, headers=headers, params=params)
     print("HTTP status:", response.status_code)
 
-    data = response.json()
+    try:
+        data = response.json()
+    except Exception as e:
+        print("Error decoding JSON:", e)
+        return []
+
+    if "response" not in data:
+        print("Unexpected API-Football response structure")
+        return []
+
+    matches = data["response"]
+    print("Total fixtures from API-Football:", len(matches))
+
+    fixtures = []
+
+    for m in matches:
+        try:
+            fixture = m["fixture"]
+            teams = m["teams"]
+            venue = fixture.get("venue", {}) or {}
+
+            home_team = teams["home"]["name"]
+            away_team = teams["away"]["name"]
+            venue_name = venue.get("name", "") or ""
+
+            # HOME ONLY at Ashton Gate
+            if home_team.lower() != "bristol city":
+                continue
+            if "ashton gate" not in venue_name.lower():
+                continue
+
+            kickoff_str = fixture["date"]  # ISO string
+            kickoff_dt = datetime.fromisoformat(kickoff_str.replace("Z", "+00:00"))
+            kickoff_uk = kickoff_dt.astimezone(uk_tz)
+
+            if kickoff_uk.date() < today_uk:
+                continue
+
+            fixtures.append({
+                "id": fixture["id"],
+                "home": home_team,
+                "away": away_team,
+                "kickoff": kickoff_uk.isoformat()
+            })
+
+        except Exception as e:
+            print("Error parsing fixture:", e)
+
+    print("Total future HOME fixtures (all competitions):", len(fixtures))
+    return fixtures
+
 
 
 
