@@ -151,7 +151,7 @@ def fetch_ashton_gate_html():
 
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # The real event container
+    # Real event container
     cards = soup.select(".event-block")
 
     events = []
@@ -166,15 +166,18 @@ def fetch_ashton_gate_html():
             title = title_el.get_text(strip=True)
             url = title_el.get("href", "")
 
-            # Date
+            # Date (range format: "25 April-25 April")
             date_el = card.select_one(".date")
             if not date_el:
                 continue
 
             date_text = date_el.get_text(strip=True)
 
-            # Parse date (format: "18 April 2026")
-            dt = datetime.strptime(date_text, "%d %B %Y")
+            # Extract start date from range
+            start_date_text = date_text.split("-")[0].strip()
+            start_date_text = f"{start_date_text} {today_uk.year}"
+
+            dt = datetime.strptime(start_date_text, "%d %B %Y")
             kickoff_uk = uk_tz.localize(dt.replace(hour=19, minute=0))
 
             if kickoff_uk.date() < today_uk:
@@ -193,9 +196,6 @@ def fetch_ashton_gate_html():
 
     print("Total Ashton Gate HTML events:", len(events))
     return events
-
-
-
 
 
 # ---------------------------------------------------------
