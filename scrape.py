@@ -16,71 +16,65 @@ print("Today's UK date:", today_uk)
 #  BRISTOL CITY FIXTURES (BBC SPORT)
 # ---------------------------------------------------------
 def fetch_bristol_city_fixtures():
-    print("\n=== Fetching Bristol City Fixtures from BBC Sport ===")
+    print("\n=== Fetching Bristol City Fixtures from BBC JSON API ===")
 
-    url = "https://www.bbc.co.uk/sport/football/teams/bristol-city/scores-fixtures"
+    url = "https://push.api.bbci.co.uk/batch?sport=football&team=bristol-city"
     print("Requesting:", url)
 
     response = requests.get(url)
     print("HTTP status:", response.status_code)
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    data = response.json()
+
+    # BBC JSON structure:
+    # data["payload"][0]["body"]["fixtures"]["matches"]
+    try:
+        matches = data["payload"][0]["body"]["fixtures"]["matches"]
+    except Exception as e:
+        print("Error parsing JSON:", e)
+        return []
+
+    print("Total matches in JSON:", len(matches))
 
     fixtures = []
 
-    # BBC Sport now uses <div class="sp-c-fixture"> for each match
-    matches = soup.select("div.sp-c-fixture")
-    print("Total matches found on page:", len(matches))
-
     for m in matches:
         try:
-            # Extract event ID
-            event_id = m.get("data-event-id", None)
-            if not event_id:
+            # Extract basic fields
+            event_id = m.get("id")
+            home_team = m["homeTeam"]["name"]
+            away_team = m["awayTeam"]["name"]
+            venue = m.get("venue", {}).get("name", "")
+
+            # Filter: HOME MATCHES ONLY at Ashton Gate
+            if home_team.lower() != "bristol city":
+                continue
+            if "ashton gate" not in venue.lower():
                 continue
 
-            # Extract date (from nearest h3 above)
-            date_header = m.find_previous("h3")
-            if not date_header:
+            # Extract kickoff time
+            # Example: "2026-08-12T14:00:00Z"
+            kickoff_str = m["startTime"]
+            kickoff_dt = datetime.fromisoformat(kickoff_str.replace("Z", "+00:00"))
+            kickoff_uk = kickoff_dt.astimezone(uk_tz)
+
+            # Skip past fixtures
+            if kickoff_uk.date() < today_uk:
                 continue
-
-            date_str = date_header.get_text(strip=True)
-            match_date = datetime.strptime(date_str, "%A %d %B %Y").date()
-
-            # Skip past matches
-            if match_date < today_uk:
-                continue
-
-            # Extract teams
-            team_names = m.select(".sp-c-fixture__team-name")
-            if len(team_names) != 2:
-                continue
-
-            home = team_names[0].get_text(strip=True)
-            away = team_names[1].get_text(strip=True)
-
-            # Extract time
-            time_el = m.select_one(".sp-c-fixture__number--time")
-            kickoff_time = time_el.get_text(strip=True) if time_el else "15:00"
-
-            # Combine date + time
-            kickoff_dt = uk_tz.localize(
-                datetime.strptime(f"{date_str} {kickoff_time}", "%A %d %B %Y %H:%M")
-            )
-            kickoff_iso = kickoff_dt.isoformat()
 
             fixtures.append({
                 "id": event_id,
-                "home": home,
-                "away": away,
-                "kickoff": kickoff_iso
+                "home": home_team,
+                "away": away_team,
+                "kickoff": kickoff_uk.isoformat()
             })
 
         except Exception as e:
             print("Error parsing match:", e)
 
-    print("Total future fixtures:", len(fixtures))
+    print("Total future HOME fixtures:", len(fixtures))
     return fixtures
+
 
 
 
