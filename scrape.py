@@ -21,59 +21,15 @@ def fetch_bristol_city_fixtures():
     url = "https://push.api.bbci.co.uk/batch?sport=football&team=bristol-city"
     print("Requesting:", url)
 
-    response = requests.get(url)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36"
+    }
+
+    response = requests.get(url, headers=headers)
     print("HTTP status:", response.status_code)
 
     data = response.json()
 
-    # BBC JSON structure:
-    # data["payload"][0]["body"]["fixtures"]["matches"]
-    try:
-        matches = data["payload"][0]["body"]["fixtures"]["matches"]
-    except Exception as e:
-        print("Error parsing JSON:", e)
-        return []
-
-    print("Total matches in JSON:", len(matches))
-
-    fixtures = []
-
-    for m in matches:
-        try:
-            # Extract basic fields
-            event_id = m.get("id")
-            home_team = m["homeTeam"]["name"]
-            away_team = m["awayTeam"]["name"]
-            venue = m.get("venue", {}).get("name", "")
-
-            # Filter: HOME MATCHES ONLY at Ashton Gate
-            if home_team.lower() != "bristol city":
-                continue
-            if "ashton gate" not in venue.lower():
-                continue
-
-            # Extract kickoff time
-            # Example: "2026-08-12T14:00:00Z"
-            kickoff_str = m["startTime"]
-            kickoff_dt = datetime.fromisoformat(kickoff_str.replace("Z", "+00:00"))
-            kickoff_uk = kickoff_dt.astimezone(uk_tz)
-
-            # Skip past fixtures
-            if kickoff_uk.date() < today_uk:
-                continue
-
-            fixtures.append({
-                "id": event_id,
-                "home": home_team,
-                "away": away_team,
-                "kickoff": kickoff_uk.isoformat()
-            })
-
-        except Exception as e:
-            print("Error parsing match:", e)
-
-    print("Total future HOME fixtures:", len(fixtures))
-    return fixtures
 
 
 
