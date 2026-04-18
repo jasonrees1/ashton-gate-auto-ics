@@ -17,9 +17,10 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: |
-          pip install requests ics python-dateutil pytz
+- name: Install dependencies
+  run: |
+    pip install requests ics python-dateutil pytz beautifulsoup4
+
 
       - name: Run scraper
         env:
