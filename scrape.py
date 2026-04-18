@@ -1,104 +1,117 @@
 print("SCRAPER STARTED")
 
-from datetime import datetime, date
+from datetime import datetime
 import pytz
 import requests
-import os
+from bs4 import BeautifulSoup
+import json
 
-API_FOOTBALL_KEY = os.environ.get("API_FOOTBALL_KEY")
-print("API key loaded:", "YES" if API_FOOTBALL_KEY else "NO")
+# UK timezone
+uk_tz = pytz.timezone("Europe/London")
+today_uk = datetime.now(uk_tz).date()
+print("Today's UK date:", today_uk)
 
+
+# ---------------------------------------------------------
+#  BRISTOL CITY FIXTURES (BBC SPORT)
+# ---------------------------------------------------------
 def fetch_bristol_city_fixtures():
-    print("\n=== Fetching Bristol City Fixtures ===")
+    print("\n=== Fetching Bristol City Fixtures from BBC Sport ===")
 
-    team_id = 55  # Bristol City
-    start_season = 2026
-    end_season = 2050
+    url = "https://www.bbc.co.uk/sport/football/teams/bristol-city/scores-fixtures"
+    print("Requesting:", url)
 
-    headers = {"x-apisports-key": API_FOOTBALL_KEY}
-    all_fixtures = []
+    response = requests.get(url)
+    print("HTTP status:", response.status_code)
 
-    # UK timezone for date-based filtering
-    uk_tz = pytz.timezone("Europe/London")
-    today_uk = datetime.now(uk_tz).date()
-    print("Today's UK date:", today_uk)
+    soup = BeautifulSoup(response.text, "html.parser")
 
-    print("Season loop starting...")
-    for season in range(start_season, end_season + 1):
-        print(f"Requesting season {season}...")
+    fixtures = []
 
-        url = f"https://v3.football.api-sports.io/fixtures?team={team_id}&season={season}"
-        response = requests.get(url, headers=headers).json()
+    matches = soup.select("li[data-event-id]")
+    print("Total matches found on page:", len(matches))
 
-        print("API response results:", response.get("results"))
-        print("API response errors:", response.get("errors"))
+    for m in matches:
+        try:
+            # Date header above the fixture group
+            date_header = m.find_previous("h3")
+            if not date_header:
+                continue
 
-        season_fixtures = response.get("response", [])
-        print(f"Fixtures returned for season {season}: {len(season_fixtures)}")
+            date_str = date_header.get_text(strip=True)
+            match_date = datetime.strptime(date_str, "%A %d %B %Y").date()
 
-        all_fixtures.extend(season_fixtures)
+            # Skip past matches
+            if match_date < today_uk:
+                continue
 
-    print("\nTotal fixtures fetched before filtering:", len(all_fixtures))
+            # Teams
+            teams = m.select_one(".sp-c-fixture__teams")
+            if not teams:
+                continue
 
-    # Filter out fixtures before today's UK date
-    future_fixtures = []
-    for fixture in all_fixtures:
-        kickoff_str = fixture["fixture"]["date"]  # ISO format
-        kickoff_dt = datetime.fromisoformat(kickoff_str.replace("Z", "+00:00"))
-        kickoff_uk = kickoff_dt.astimezone(uk_tz)
+            home_el = teams.select_one(".sp-c-fixture__team--home .sp-c-fixture__team-name")
+            away_el = teams.select_one(".sp-c-fixture__team--away .sp-c-fixture__team-name")
+            if not home_el or not away_el:
+                continue
 
-        if kickoff_uk.date() >= today_uk:
-            future_fixtures.append(fixture)
+            home = home_el.get_text(strip=True)
+            away = away_el.get_text(strip=True)
 
-    print("Total fixtures after filtering:", len(future_fixtures))
+            # Time (may be TBC)
+            time_el = m.select_one(".sp-c-fixture__number--time")
+            if time_el:
+                kickoff_time = time_el.get_text(strip=True)
+            else:
+                kickoff_time = "15:00"  # default if TBC
 
-    # Sort by kickoff time
-    future_fixtures.sort(
-        key=lambda f: datetime.fromisoformat(
-            f["fixture"]["date"].replace("Z", "+00:00")
-        )
-    )
+            # Combine date + time into ISO
+            kickoff_dt = uk_tz.localize(
+                datetime.strptime(f"{date_str} {kickoff_time}", "%A %d %B %Y %H:%M")
+            )
+            kickoff_iso = kickoff_dt.isoformat()
 
-    print("Returning fixtures:", len(future_fixtures))
-    return future_fixtures
+            fixtures.append({
+                "id": m["data-event-id"],
+                "home": home,
+                "away": away,
+                "kickoff": kickoff_iso
+            })
+
+        except Exception as e:
+            print("Error parsing match:", e)
+
+    print("Total future fixtures:", len(fixtures))
+    return fixtures
 
 
-# MAIN EXECUTION
+# ---------------------------------------------------------
+#  MAIN EXECUTION
+# ---------------------------------------------------------
 print("\n=== Running main scraper ===")
 
 fixtures = fetch_bristol_city_fixtures()
+print("Fixtures fetched:", len(fixtures))
 
-print("\nFixtures fetched:", len(fixtures))
-
-# Convert fixtures into events.json format
 events = []
 
 for f in fixtures:
-    fixture_id = f["fixture"]["id"]
-    home = f["teams"]["home"]["name"]
-    away = f["teams"]["away"]["name"]
-    kickoff = f["fixture"]["date"]
-
     events.append({
-        "id": f"football-{fixture_id}",
-        "title": f"{home} vs {away}",
-        "start": kickoff,
+        "id": f"football-{f['id']}",
+        "title": f"{f['home']} vs {f['away']}",
+        "start": f["kickoff"],
         "category": "football"
     })
 
 print("Total events being written to events.json:", len(events))
 
-# Write events.json
-import json
 with open("events.json", "w") as f:
     json.dump(events, f, indent=2)
 
 print("events.json written successfully")
 
-# Write calendar.ics (empty for now — debug focus)
 with open("calendar.ics", "w") as f:
     f.write("BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Ashton Gate Auto Feed//EN\nEND:VCALENDAR\n")
 
 print("calendar.ics written successfully")
-
 print("SCRAPER FINISHED")
