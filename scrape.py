@@ -28,12 +28,18 @@ def fetch_bristol_city_fixtures():
 
     fixtures = []
 
-    matches = soup.select("li[data-event-id]")
+    # BBC Sport now uses <div class="sp-c-fixture"> for each match
+    matches = soup.select("div.sp-c-fixture")
     print("Total matches found on page:", len(matches))
 
     for m in matches:
         try:
-            # Date header above the fixture group
+            # Extract event ID
+            event_id = m.get("data-event-id", None)
+            if not event_id:
+                continue
+
+            # Extract date (from nearest h3 above)
             date_header = m.find_previous("h3")
             if not date_header:
                 continue
@@ -45,34 +51,26 @@ def fetch_bristol_city_fixtures():
             if match_date < today_uk:
                 continue
 
-            # Teams
-            teams = m.select_one(".sp-c-fixture__teams")
-            if not teams:
+            # Extract teams
+            team_names = m.select(".sp-c-fixture__team-name")
+            if len(team_names) != 2:
                 continue
 
-            home_el = teams.select_one(".sp-c-fixture__team--home .sp-c-fixture__team-name")
-            away_el = teams.select_one(".sp-c-fixture__team--away .sp-c-fixture__team-name")
-            if not home_el or not away_el:
-                continue
+            home = team_names[0].get_text(strip=True)
+            away = team_names[1].get_text(strip=True)
 
-            home = home_el.get_text(strip=True)
-            away = away_el.get_text(strip=True)
-
-            # Time (may be TBC)
+            # Extract time
             time_el = m.select_one(".sp-c-fixture__number--time")
-            if time_el:
-                kickoff_time = time_el.get_text(strip=True)
-            else:
-                kickoff_time = "15:00"  # default if TBC
+            kickoff_time = time_el.get_text(strip=True) if time_el else "15:00"
 
-            # Combine date + time into ISO
+            # Combine date + time
             kickoff_dt = uk_tz.localize(
                 datetime.strptime(f"{date_str} {kickoff_time}", "%A %d %B %Y %H:%M")
             )
             kickoff_iso = kickoff_dt.isoformat()
 
             fixtures.append({
-                "id": m["data-event-id"],
+                "id": event_id,
                 "home": home,
                 "away": away,
                 "kickoff": kickoff_iso
@@ -83,6 +81,7 @@ def fetch_bristol_city_fixtures():
 
     print("Total future fixtures:", len(fixtures))
     return fixtures
+
 
 
 # ---------------------------------------------------------
