@@ -84,11 +84,11 @@ def fetch_bristol_city_fixtures():
 #  BRISTOL BEARS FIXTURES (PREMIERSHIP RUGBY JSON)
 # ---------------------------------------------------------
 def fetch_bristol_bears_fixtures():
-    print("\n=== Fetching Bristol Bears Fixtures (HTML Scraper) ===")
+    print("\n=== Fetching Bristol Bears Fixtures (Mobile HTML Scraper) ===")
 
-    url = "https://www.premiershiprugby.com/fixtures?team=bristol-bears"
+    url = "https://www.premiershiprugby.com/match-centre/fixtures?team=bristol-bears"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15A372 Safari/604.1"
     }
 
     response = requests.get(url, headers=headers)
@@ -102,21 +102,18 @@ def fetch_bristol_bears_fixtures():
 
     fixtures = []
 
-    # Each fixture block
     cards = soup.select(".fixture-card")
 
     for card in cards:
         try:
-            # Venue
             venue_el = card.select_one(".fixture__venue")
             venue = venue_el.get_text(strip=True) if venue_el else ""
 
             if "ashton gate" not in venue.lower():
                 continue
 
-            # Teams
-            home_el = card.select_one(".fixture__team--home .fixture__team-name")
-            away_el = card.select_one(".fixture__team--away .fixture__team-name")
+            home_el = card.select_one(".fixture__team--home")
+            away_el = card.select_one(".fixture__team--away")
 
             home_team = home_el.get_text(strip=True) if home_el else ""
             away_team = away_el.get_text(strip=True) if away_el else ""
@@ -124,15 +121,12 @@ def fetch_bristol_bears_fixtures():
             if home_team.lower() != "bristol bears":
                 continue
 
-            # Date
             date_el = card.select_one(".fixture__date")
             date_text = date_el.get_text(strip=True) if date_el else ""
 
-            # Time
             time_el = card.select_one(".fixture__time")
             time_text = time_el.get_text(strip=True) if time_el else "15:00"
 
-            # Parse date like "Saturday 9 May 2026"
             dt = datetime.strptime(f"{date_text} {time_text}", "%A %d %B %Y %H:%M")
             kickoff_uk = uk_tz.localize(dt)
 
@@ -153,6 +147,7 @@ def fetch_bristol_bears_fixtures():
 
     print("Total future HOME rugby fixtures:", len(fixtures))
     return fixtures
+
 
 
 
