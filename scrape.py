@@ -84,9 +84,10 @@ def fetch_bristol_city_fixtures():
 #  BRISTOL BEARS FIXTURES (PREMIERSHIP RUGBY JSON)
 # ---------------------------------------------------------
 def fetch_bristol_bears_fixtures():
-    print("\n=== Fetching Bristol Bears Fixtures (Premiership Rugby API v2) ===")
+    print("\n=== Fetching Bristol Bears Fixtures (Premiership Rugby Fixture Download JSON) ===")
 
-    url = "https://www.premiershiprugby.com/wp-json/wp/v2/fixtures?team=bristol-bears&per_page=100"
+    # 2025/26 Bristol Bears fixtures JSON (Premiership Rugby official)
+    url = "https://www.premiershiprugby.com/fixtures-download?season=2025-2026&team=bristol-bears&format=json"
 
     response = requests.get(url)
     print("HTTP status:", response.status_code)
@@ -101,17 +102,29 @@ def fetch_bristol_bears_fixtures():
 
     for m in data:
         try:
-            title = m.get("title", {}).get("rendered", "").strip()
+            # Example fields in this feed:
+            # {
+            #   "round_number": "15",
+            #   "date": "09/05/2026",
+            #   "time": "17:30",
+            #   "location": "Ashton Gate",
+            #   "home_team": "Bristol Bears",
+            #   "away_team": "Saracens",
+            #   "competition": "Gallagher Premiership"
+            # }
 
-            # ACF fields contain the structured data
-            acf = m.get("acf", {})
+            location = (m.get("location") or "").strip()
+            home_team = (m.get("home_team") or "").strip()
+            away_team = (m.get("away_team") or "").strip()
 
-            venue = acf.get("venue", "") or ""
-            if "ashton gate" not in venue.lower():
+            # Only Ashton Gate home games for Bristol Bears
+            if home_team.lower() != "bristol bears":
+                continue
+            if "ashton gate" not in location.lower():
                 continue
 
-            date_str = acf.get("date", "")  # "2026-05-09"
-            time_str = acf.get("time", "")  # "17:30"
+            date_str = (m.get("date") or "").strip()   # "09/05/2026"
+            time_str = (m.get("time") or "").strip()   # "17:30" (may be empty)
 
             if not date_str:
                 continue
@@ -119,11 +132,17 @@ def fetch_bristol_bears_fixtures():
             if not time_str:
                 time_str = "15:00"
 
-            dt = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+            # Parse DD/MM/YYYY HH:MM
+            dt = datetime.strptime(f"{date_str} {time_str}", "%d/%m/%Y %H:%M")
             kickoff_uk = uk_tz.localize(dt)
 
             if kickoff_uk.date() < today_uk:
                 continue
+
+            competition = (m.get("competition") or "").strip()
+            title = f"{home_team} vs {away_team}"
+            if competition:
+                title = f"{title} ({competition})"
 
             fixtures.append({
                 "id": f"rugby-{int(kickoff_uk.timestamp())}",
@@ -137,6 +156,7 @@ def fetch_bristol_bears_fixtures():
 
     print("Total future HOME rugby fixtures:", len(fixtures))
     return fixtures
+
 
 
 
