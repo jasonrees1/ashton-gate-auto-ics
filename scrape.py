@@ -84,9 +84,10 @@ def fetch_bristol_city_fixtures():
 #  BRISTOL BEARS FIXTURES (PREMIERSHIP RUGBY JSON)
 # ---------------------------------------------------------
 def fetch_bristol_bears_fixtures():
-    print("\n=== Fetching Bristol Bears Fixtures (Premiership Rugby JSON) ===")
+    print("\n=== Fetching Bristol Bears Fixtures (Premiership Rugby Internal API) ===")
 
-    url = "https://www.premiershiprugby.com/wp-json/wp/v2/clubs/bristol-bears/fixtures"
+    # This is the internal API the website actually uses
+    url = "https://www.premiershiprugby.com/wp-json/prl/v1/fixtures?team=bristol-bears"
 
     response = requests.get(url)
     print("HTTP status:", response.status_code)
@@ -94,25 +95,34 @@ def fetch_bristol_bears_fixtures():
     try:
         data = response.json()
     except:
+        print("Error: Could not decode JSON")
         return []
 
     fixtures = []
 
-    for e in data:
+    for m in data:
         try:
-            title = e.get("title", {}).get("rendered", "")
-            venue = e.get("acf", {}).get("venue", "")
-            date_str = e.get("acf", {}).get("date", "")
-            time_str = e.get("acf", {}).get("time", "")
+            # Title
+            title = m.get("title", "").strip()
 
+            # Venue
+            venue = m.get("venue", "") or ""
             if "ashton gate" not in venue.lower():
                 continue
+
+            # Date + time
+            date_str = m.get("date", "")  # e.g. "2026-05-09"
+            time_str = m.get("time", "")  # e.g. "17:30"
 
             if not date_str:
                 continue
 
-            dt_str = f"{date_str} {time_str or '15:00'}"
-            kickoff_uk = uk_tz.localize(datetime.strptime(dt_str, "%Y-%m-%d %H:%M"))
+            # If time missing, default to 15:00
+            if not time_str:
+                time_str = "15:00"
+
+            dt = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+            kickoff_uk = uk_tz.localize(dt)
 
             if kickoff_uk.date() < today_uk:
                 continue
@@ -125,10 +135,11 @@ def fetch_bristol_bears_fixtures():
             })
 
         except Exception as e:
-            print("Error parsing rugby fixture:", e)
+            print("Error parsing Bears fixture:", e)
 
     print("Total future HOME rugby fixtures:", len(fixtures))
     return fixtures
+
 
 
 # ---------------------------------------------------------
