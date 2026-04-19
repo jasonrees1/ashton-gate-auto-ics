@@ -84,40 +84,38 @@ def fetch_bristol_city_fixtures():
 #  BRISTOL BEARS FIXTURES (PREMIERSHIP RUGBY JSON)
 # ---------------------------------------------------------
 def fetch_bristol_bears_fixtures():
-    print("\n=== Fetching Bristol Bears Fixtures (Premiership Rugby Internal API) ===")
+    print("\n=== Fetching Bristol Bears Fixtures (Premiership Rugby API v2) ===")
 
-    # This is the internal API the website actually uses
-    url = "https://www.premiershiprugby.com/wp-json/prl/v1/fixtures?team=bristol-bears"
+    url = "https://www.premiershiprugby.com/wp-json/wp/v2/fixtures?team=bristol-bears&per_page=100"
 
     response = requests.get(url)
     print("HTTP status:", response.status_code)
 
     try:
         data = response.json()
-    except:
-        print("Error: Could not decode JSON")
+    except Exception as e:
+        print("Error decoding JSON:", e)
         return []
 
     fixtures = []
 
     for m in data:
         try:
-            # Title
-            title = m.get("title", "").strip()
+            title = m.get("title", {}).get("rendered", "").strip()
 
-            # Venue
-            venue = m.get("venue", "") or ""
+            # ACF fields contain the structured data
+            acf = m.get("acf", {})
+
+            venue = acf.get("venue", "") or ""
             if "ashton gate" not in venue.lower():
                 continue
 
-            # Date + time
-            date_str = m.get("date", "")  # e.g. "2026-05-09"
-            time_str = m.get("time", "")  # e.g. "17:30"
+            date_str = acf.get("date", "")  # "2026-05-09"
+            time_str = acf.get("time", "")  # "17:30"
 
             if not date_str:
                 continue
 
-            # If time missing, default to 15:00
             if not time_str:
                 time_str = "15:00"
 
@@ -139,6 +137,7 @@ def fetch_bristol_bears_fixtures():
 
     print("Total future HOME rugby fixtures:", len(fixtures))
     return fixtures
+
 
 
 
