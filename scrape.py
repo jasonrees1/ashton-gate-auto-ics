@@ -84,65 +84,62 @@ def fetch_bristol_city_fixtures():
 #  BRISTOL BEARS FIXTURES (PREMIERSHIP RUGBY JSON)
 # ---------------------------------------------------------
 def fetch_bristol_bears_fixtures():
-    print("\n=== Fetching Bristol Bears Fixtures (Premiership Rugby Fixture Download JSON) ===")
+    print("\n=== Fetching Bristol Bears Fixtures (HTML Scraper) ===")
 
-    # 2025/26 Bristol Bears fixtures JSON (Premiership Rugby official)
-    url = "https://www.premiershiprugby.com/fixtures-download?season=2025-2026&team=bristol-bears&format=json"
+    url = "https://www.premiershiprugby.com/fixtures?team=bristol-bears"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36"
+    }
 
-    response = requests.get(url)
+    response = requests.get(url, headers=headers)
     print("HTTP status:", response.status_code)
 
-    try:
-        data = response.json()
-    except Exception as e:
-        print("Error decoding JSON:", e)
+    if response.status_code != 200:
+        print("Could not fetch Bears fixtures HTML")
         return []
+
+    soup = BeautifulSoup(response.text, "html.parser")
 
     fixtures = []
 
-    for m in data:
+    # Each fixture block
+    cards = soup.select(".fixture-card")
+
+    for card in cards:
         try:
-            # Example fields in this feed:
-            # {
-            #   "round_number": "15",
-            #   "date": "09/05/2026",
-            #   "time": "17:30",
-            #   "location": "Ashton Gate",
-            #   "home_team": "Bristol Bears",
-            #   "away_team": "Saracens",
-            #   "competition": "Gallagher Premiership"
-            # }
+            # Venue
+            venue_el = card.select_one(".fixture__venue")
+            venue = venue_el.get_text(strip=True) if venue_el else ""
 
-            location = (m.get("location") or "").strip()
-            home_team = (m.get("home_team") or "").strip()
-            away_team = (m.get("away_team") or "").strip()
+            if "ashton gate" not in venue.lower():
+                continue
 
-            # Only Ashton Gate home games for Bristol Bears
+            # Teams
+            home_el = card.select_one(".fixture__team--home .fixture__team-name")
+            away_el = card.select_one(".fixture__team--away .fixture__team-name")
+
+            home_team = home_el.get_text(strip=True) if home_el else ""
+            away_team = away_el.get_text(strip=True) if away_el else ""
+
             if home_team.lower() != "bristol bears":
                 continue
-            if "ashton gate" not in location.lower():
-                continue
 
-            date_str = (m.get("date") or "").strip()   # "09/05/2026"
-            time_str = (m.get("time") or "").strip()   # "17:30" (may be empty)
+            # Date
+            date_el = card.select_one(".fixture__date")
+            date_text = date_el.get_text(strip=True) if date_el else ""
 
-            if not date_str:
-                continue
+            # Time
+            time_el = card.select_one(".fixture__time")
+            time_text = time_el.get_text(strip=True) if time_el else "15:00"
 
-            if not time_str:
-                time_str = "15:00"
-
-            # Parse DD/MM/YYYY HH:MM
-            dt = datetime.strptime(f"{date_str} {time_str}", "%d/%m/%Y %H:%M")
+            # Parse date like "Saturday 9 May 2026"
+            dt = datetime.strptime(f"{date_text} {time_text}", "%A %d %B %Y %H:%M")
             kickoff_uk = uk_tz.localize(dt)
 
             if kickoff_uk.date() < today_uk:
                 continue
 
-            competition = (m.get("competition") or "").strip()
             title = f"{home_team} vs {away_team}"
-            if competition:
-                title = f"{title} ({competition})"
 
             fixtures.append({
                 "id": f"rugby-{int(kickoff_uk.timestamp())}",
@@ -156,6 +153,7 @@ def fetch_bristol_bears_fixtures():
 
     print("Total future HOME rugby fixtures:", len(fixtures))
     return fixtures
+
 
 
 
