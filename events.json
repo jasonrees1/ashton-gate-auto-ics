@@ -133,12 +133,6 @@
     "url": "https://www.ashtongatestadium.co.uk/event/micheal-jackson-tribute-night-dec-12/"
   },
   {
-    "id": "tm-G5diZ_7lOvbGF",
-    "title": "East Conf Qtrs: Atlanta Hawks at New York Knicks HM GM1",
-    "start": "2026-04-18T23:00:00+01:00",
-    "category": "ticketmaster"
-  },
-  {
     "id": "tm-G5diZ_7lOvbG1",
     "title": "East Conf Qtrs: Atlanta Hawks at New York Knicks HM GM2",
     "start": "2026-04-21T01:00:00+01:00",
@@ -226,6 +220,12 @@
     "id": "tm-G5diZ_df7_Fkn",
     "title": "Harry Styles: Together, Together",
     "start": "2026-08-30T01:00:00+01:00",
+    "category": "ticketmaster"
+  },
+  {
+    "id": "tm-G5diZ_df7Lz6v",
+    "title": "Harry Styles: Together, Together",
+    "start": "2026-09-03T01:00:00+01:00",
     "category": "ticketmaster"
   }
 ]
